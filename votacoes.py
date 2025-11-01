@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- Configurações ---
 BASE_URL = "https://dadosabertos.camara.leg.br/api/v2/votacoes"
-ANO_INICIO = 2018
+ANO_INICIO = 2019
 ANO_FIM = 2022
 ITENS_POR_PAGINA = 100
 PASTA_OUTPUT = "dados_votacoes"
