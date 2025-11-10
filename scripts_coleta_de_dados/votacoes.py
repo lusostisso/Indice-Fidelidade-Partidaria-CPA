@@ -79,6 +79,13 @@ def coletar_dados_ano(ano):
                             break # Sai do loop de paginação (while True)
                         
                         # Adiciona os dados e vai para a próxima página
+                        for votacao in votacoes_da_pagina:
+                            # Extrai o ID da primeira proposição, se houver
+                            proposicao_id = None
+                            if isinstance(votacao.get('proposicoes'), list) and votacao['proposicoes']:
+                                proposicao_id = votacao['proposicoes'][0].get('id')
+                            votacao['proposicao_id'] = proposicao_id
+                        
                         votacoes_do_ano.extend(votacoes_da_pagina)
                         print(f"      OK! {len(votacoes_da_pagina)} itens recebidos.")
                         
@@ -146,7 +153,6 @@ def coletar_dados_ano(ano):
 if __name__ == "__main__":
     total_geral_itens = 0
     
-    # Loop EXTERNO: Itera por cada ano
     for ano in range(ANO_INICIO, ANO_FIM + 1):
         itens_coletados_no_ano = coletar_dados_ano(ano)
         total_geral_itens += itens_coletados_no_ano
@@ -155,5 +161,5 @@ if __name__ == "__main__":
     print("      COLETA CONCLUÍDA")
     print("===================================")
     print(f"Anos processados: {ANO_INICIO} a {ANO_FIM}")
-    print(f"Total de votações coletadas: {total_geral_itens}")
+    print("Um ou mais identificador(es) numéricos de órgãos da Câmara, separados por vírgulas. Se presente, serão retornadas somente votações dos órgãos enumerados. Os identificadores existentes podem ser obtidos por meio do recurso /orgaos.")
     print(f"Os dados estão salvos na pasta: {PASTA_OUTPUT}")
