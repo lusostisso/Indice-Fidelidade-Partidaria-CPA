@@ -10,8 +10,8 @@ from collections import defaultdict
 BASE_URL_API = "https://dadosabertos.camara.leg.br/api/v2"
 ANO_INICIO = 2018
 ANO_FIM = 2022
-PASTA_INPUT = "dados_votacoes"
-PASTA_OUTPUT = "dados_votacoes"
+PASTA_INPUT = "../dados_coletados/dados_votacoes"
+PASTA_OUTPUT = "../dados_coletados/dados_votacoes"
 TEMPO_ESPERA_SEC = 0.4        # Espera normal entre requisições
 TEMPO_ESPERA_RETRY_SEC = 8    # Espera após erro
 MAX_TENTATIVAS = 4            # Máximo de tentativas por requisição

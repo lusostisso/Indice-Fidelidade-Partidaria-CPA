@@ -10,7 +10,7 @@ BASE_URL = "https://dadosabertos.camara.leg.br/api/v2/votacoes"
 ANO_INICIO = 2019
 ANO_FIM = 2022
 ITENS_POR_PAGINA = 100
-PASTA_OUTPUT = "dados_votacoes"
+PASTA_OUTPUT = "../dados_coletados/dados_votacoes"
 TEMPO_ESPERA_SEC = 0.5        # Espera normal entre requisições BEM-SUCEDIDAS
 TEMPO_ESPERA_RETRY_SEC = 10   # Espera mais longa após um ERRO (5xx)
 MAX_TENTATIVAS = 5            # Máximo de tentativas por página antes de desistir
@@ -155,5 +155,5 @@ if __name__ == "__main__":
     print("      COLETA CONCLUÍDA")
     print("===================================")
     print(f"Anos processados: {ANO_INICIO} a {ANO_FIM}")
-    print("Um ou mais identificador(es) numéricos de órgãos da Câmara, separados por vírgulas. Se presente, serão retornadas somente votações dos órgãos enumerados. Os identificadores existentes podem ser obtidos por meio do recurso /orgaos.")
+    print(f"Total de votações coletadas: {total_geral_itens}")
     print(f"Os dados estão salvos na pasta: {PASTA_OUTPUT}")
