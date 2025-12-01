@@ -16,14 +16,15 @@ Ambos representam a mesma votação e são linkados corretamente.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 from datetime import datetime
 
 # Configurações
 PASTA_DADOS = "dados_coletados"
 ANOS = [2018, 2019, 2020, 2021, 2022]
-ARQUIVO_SAIDA = "dados_limpos_powerbi.csv"
+ARQUIVO_SAIDA_VOTACOES = "dados_limpos_powerbi.csv"
+ARQUIVO_SAIDA_VOTOS = "votos_deputados_powerbi.csv"
 
 
 def normalizar_id_votacao(votacao_id: str) -> str:
@@ -206,6 +207,68 @@ def extrair_temas_da_votacao(votacao_detalhes: dict, temas_proposicoes: Dict[str
     return temas_encontrados
 
 
+def obter_orientacao_partido(sigla_partido: str, orientacoes: List[dict]) -> Optional[str]:
+    """
+    Obtém a orientação de voto de um partido específico.
+    
+    Retorna a orientação do partido ou None se não houver orientação específica.
+    Prioriza orientações diretas do partido sobre orientações de blocos.
+    """
+    if not orientacoes or not sigla_partido:
+        return None
+    
+    sigla_partido_upper = sigla_partido.upper()
+    orientacao_bloco = None  # Para armazenar orientação de bloco como fallback
+    
+    # Primeiro, buscar orientação específica do partido (prioridade)
+    for orientacao in orientacoes:
+        sigla_partido_bloco = orientacao.get("siglaPartidoBloco", "")
+        cod_tipo_lideranca = orientacao.get("codTipoLideranca", "")
+        
+        # Se for orientação de partido (não bloco) e a sigla corresponder exatamente
+        if cod_tipo_lideranca == "P":
+            sigla_bloco_upper = sigla_partido_bloco.upper()
+            if sigla_bloco_upper == sigla_partido_upper:
+                return orientacao.get("orientacaoVoto")
+        
+        # Se for bloco, verificar se o partido está no bloco (fallback)
+        elif cod_tipo_lideranca == "B":
+            sigla_bloco_upper = sigla_partido_bloco.upper()
+            # Verificar se a sigla do partido está no nome do bloco
+            # Exemplo: "PsdbPsdPrPrb..." contém "PSDB", "PSD", "PR", "PRB"
+            if sigla_partido_upper in sigla_bloco_upper:
+                # Armazenar como fallback (pode haver múltiplos blocos)
+                if orientacao_bloco is None:
+                    orientacao_bloco = orientacao.get("orientacaoVoto")
+    
+    # Retornar orientação de bloco se não houver orientação direta do partido
+    return orientacao_bloco
+
+
+def verificar_fidelidade_partidaria(voto_deputado: str, orientacao_partido: Optional[str]) -> Optional[bool]:
+    """
+    Verifica se o voto do deputado está alinhado com a orientação do partido.
+    
+    Retorna:
+    - True: se o deputado seguiu a orientação
+    - False: se o deputado não seguiu a orientação
+    - None: se não há orientação do partido ou voto inválido
+    """
+    if not orientacao_partido or not voto_deputado:
+        return None
+    
+    # Mapear votos para valores comparáveis
+    voto_normalizado = voto_deputado.strip()
+    orientacao_normalizada = orientacao_partido.strip()
+    
+    # Se a orientação for "Liberada", não há fidelidade a verificar
+    if orientacao_normalizada == "Liberada":
+        return None
+    
+    # Comparar diretamente
+    return voto_normalizado == orientacao_normalizada
+
+
 def validar_votacao(votacao_id: str, votos: List[dict], orientacoes: List[dict]) -> bool:
     """
     Valida se uma votação tem pelo menos votos OU orientações.
@@ -297,8 +360,94 @@ def processar_votacao(votacao_id: str,
     return dados_limpos
 
 
-def processar_ano(ano: int) -> List[dict]:
-    """Processa todos os dados de um ano."""
+def processar_votos_deputados(votacao_id: str,
+                              votacao_basica: dict,
+                              votacao_detalhes: dict,
+                              votos: List[dict],
+                              orientacoes: List[dict],
+                              temas_proposicoes: Dict[str, List[dict]]) -> List[dict]:
+    """
+    Processa os votos individuais dos deputados para uma votação.
+    Retorna uma lista de dicionários, um para cada voto de deputado.
+    """
+    votos_deputados = []
+    
+    if not votos:
+        return votos_deputados
+    
+    # Extrair temas
+    temas = extrair_temas_da_votacao(votacao_detalhes, temas_proposicoes)
+    
+    # Informações básicas da votação
+    info_votacao = {
+        "id_votacao": votacao_id,
+        "data": votacao_basica.get("data"),
+        "siglaOrgao": votacao_basica.get("siglaOrgao"),
+        "descricao": votacao_basica.get("descricao"),
+        "aprovacao": votacao_basica.get("aprovacao"),
+        "temas": "; ".join(temas) if temas else None,
+        "proposicao_afetada_id": None,
+        "proposicao_afetada_siglaTipo": None,
+        "proposicao_afetada_numero": None,
+        "proposicao_afetada_ano": None,
+    }
+    
+    # Extrair primeira proposição afetada (se houver)
+    proposicoes_afetadas = votacao_detalhes.get("proposicoesAfetadas", [])
+    if proposicoes_afetadas:
+        primeira_prop = proposicoes_afetadas[0]
+        info_votacao["proposicao_afetada_id"] = primeira_prop.get("id")
+        info_votacao["proposicao_afetada_siglaTipo"] = primeira_prop.get("siglaTipo")
+        info_votacao["proposicao_afetada_numero"] = primeira_prop.get("numero")
+        info_votacao["proposicao_afetada_ano"] = primeira_prop.get("ano")
+    
+    # Processar cada voto
+    for voto in votos:
+        deputado_info = voto.get("deputado_", {})
+        if not deputado_info:
+            continue
+        
+        tipo_voto = voto.get("tipoVoto")
+        sigla_partido = deputado_info.get("siglaPartido")
+        
+        # Obter orientação do partido
+        orientacao_partido = obter_orientacao_partido(sigla_partido, orientacoes) if orientacoes else None
+        
+        # Verificar fidelidade partidária
+        fidelidade = verificar_fidelidade_partidaria(tipo_voto, orientacao_partido)
+        
+        # Criar registro do voto do deputado
+        voto_deputado = {
+            # Informações da votação
+            **info_votacao,
+            
+            # Informações do deputado
+            "deputado_id": deputado_info.get("id"),
+            "deputado_nome": deputado_info.get("nome"),
+            "deputado_partido": sigla_partido,
+            "deputado_uf": deputado_info.get("siglaUf"),
+            "deputado_legislatura": deputado_info.get("idLegislatura"),
+            "deputado_email": deputado_info.get("email"),
+            
+            # Informações do voto
+            "voto": tipo_voto,
+            "data_registro_voto": voto.get("dataRegistroVoto"),
+            
+            # Informações da orientação do partido
+            "orientacao_partido": orientacao_partido,
+            "fidelidade_partidaria": fidelidade,
+        }
+        
+        votos_deputados.append(voto_deputado)
+    
+    return votos_deputados
+
+
+def processar_ano(ano: int) -> Tuple[List[dict], List[dict]]:
+    """
+    Processa todos os dados de um ano.
+    Retorna uma tupla: (dados_votacoes, dados_votos_deputados)
+    """
     print(f"\nProcessando ano {ano}...")
     
     # Carregar todos os dados
@@ -316,9 +465,11 @@ def processar_ano(ano: int) -> List[dict]:
     
     # Processar cada votação
     dados_limpos = []
+    votos_deputados_lista = []
     votacoes_validas = 0
     votacoes_invalidas = 0
     votacoes_sem_dados = 0
+    total_votos_processados = 0
     
     # Usar IDs que estão em votacoes_basicas como base
     # Criar um conjunto de IDs únicos (normalizados) para evitar processar duplicados
@@ -348,7 +499,7 @@ def processar_ano(ano: int) -> List[dict]:
         # Usar o ID original da votação básica se encontrado
         votacao_id_final = votacao_basica.get("id", votacao_id)
         
-        # Processar votação
+        # Processar votação agregada
         dados = processar_votacao(
             votacao_id_final,
             votacao_basica,
@@ -361,15 +512,28 @@ def processar_ano(ano: int) -> List[dict]:
         if dados:
             dados_limpos.append(dados)
             votacoes_validas += 1
+            
+            # Processar votos individuais dos deputados
+            votos_dep = processar_votos_deputados(
+                votacao_id_final,
+                votacao_basica,
+                votacao_detalhe,
+                votos_votacao,
+                orientacoes_votacao,
+                temas_proposicoes
+            )
+            votos_deputados_lista.extend(votos_dep)
+            total_votos_processados += len(votos_dep)
         else:
             votacoes_invalidas += 1
     
     print(f"  Votações válidas: {votacoes_validas}")
     print(f"  Votações inválidas (sem orientações e sem votos): {votacoes_invalidas}")
+    print(f"  Votos individuais processados: {total_votos_processados}")
     if votacoes_sem_dados > 0:
         print(f"  Votações sem dados básicos: {votacoes_sem_dados}")
     
-    return dados_limpos
+    return dados_limpos, votos_deputados_lista
 
 
 def main():
@@ -384,53 +548,90 @@ def main():
         return
     
     # Processar todos os anos
-    todos_dados = []
+    todos_dados_votacoes = []
+    todos_dados_votos = []
+    
     for ano in ANOS:
         try:
-            dados_ano = processar_ano(ano)
-            todos_dados.extend(dados_ano)
+            dados_votacoes, dados_votos = processar_ano(ano)
+            todos_dados_votacoes.extend(dados_votacoes)
+            todos_dados_votos.extend(dados_votos)
         except Exception as e:
             print(f"ERRO ao processar ano {ano}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
     
-    if len(todos_dados) == 0:
+    if len(todos_dados_votacoes) == 0:
         print("\nERRO: Nenhum dado válido foi encontrado!")
         return
     
     print(f"\n{'=' * 60}")
-    print(f"Total de votações válidas: {len(todos_dados)}")
+    print(f"Total de votações válidas: {len(todos_dados_votacoes)}")
+    print(f"Total de votos individuais: {len(todos_dados_votos):,}")
     print(f"{'=' * 60}")
     
-    # Criar DataFrame
+    # Criar DataFrames
     try:
-        df = pd.DataFrame(todos_dados)
+        # DataFrame de votações agregadas
+        df_votacoes = pd.DataFrame(todos_dados_votacoes)
+        df_votacoes['data'] = pd.to_datetime(df_votacoes['data'], errors='coerce')
+        df_votacoes = df_votacoes.sort_values('data')
         
-        # Ordenar por data
-        df['data'] = pd.to_datetime(df['data'], errors='coerce')
-        df = df.sort_values('data')
+        # DataFrame de votos individuais
+        df_votos = pd.DataFrame(todos_dados_votos)
+        df_votos['data'] = pd.to_datetime(df_votos['data'], errors='coerce')
+        df_votos = df_votos.sort_values(['data', 'deputado_nome'])
         
-        # Salvar CSV
-        df.to_csv(ARQUIVO_SAIDA, index=False, encoding='utf-8-sig')
-        print(f"\n✓ Arquivo salvo: {ARQUIVO_SAIDA}")
-        print(f"  Total de linhas: {len(df)}")
-        print(f"  Total de colunas: {len(df.columns)}")
+        # Salvar CSVs
+        df_votacoes.to_csv(ARQUIVO_SAIDA_VOTACOES, index=False, encoding='utf-8-sig')
+        print(f"\n✓ Arquivo de votações salvo: {ARQUIVO_SAIDA_VOTACOES}")
+        print(f"  Total de linhas: {len(df_votacoes)}")
+        print(f"  Total de colunas: {len(df_votacoes.columns)}")
+        
+        df_votos.to_csv(ARQUIVO_SAIDA_VOTOS, index=False, encoding='utf-8-sig')
+        print(f"\n✓ Arquivo de votos individuais salvo: {ARQUIVO_SAIDA_VOTOS}")
+        print(f"  Total de linhas: {len(df_votos):,}")
+        print(f"  Total de colunas: {len(df_votos.columns)}")
         
         # Mostrar estatísticas
-        print("\nEstatísticas:")
-        print(f"  Período: {df['data'].min()} a {df['data'].max()}")
-        print(f"  Total de votos registrados: {df['total_votos'].sum():,}")
-        print(f"  Total de orientações registradas: {df['total_orientacoes'].sum():,}")
-        print(f"  Votações com temas: {df['temas'].notna().sum()}")
+        print("\nEstatísticas - Votações:")
+        print(f"  Período: {df_votacoes['data'].min()} a {df_votacoes['data'].max()}")
+        print(f"  Total de votos registrados: {df_votacoes['total_votos'].sum():,}")
+        print(f"  Total de orientações registradas: {df_votacoes['total_orientacoes'].sum():,}")
+        print(f"  Votações com temas: {df_votacoes['temas'].notna().sum()}")
         
         # Estatísticas por ano
-        df['ano'] = df['data'].dt.year
+        df_votacoes['ano'] = df_votacoes['data'].dt.year
         print("\nVotações por ano:")
-        for ano in sorted(df['ano'].dropna().unique()):
-            count = len(df[df['ano'] == ano])
+        for ano in sorted(df_votacoes['ano'].dropna().unique()):
+            count = len(df_votacoes[df_votacoes['ano'] == ano])
             print(f"  {int(ano)}: {count:,} votações")
         
-        print("\nColunas no arquivo:")
-        for i, col in enumerate(df.columns, 1):
+        # Estatísticas de votos individuais
+        print("\nEstatísticas - Votos Individuais:")
+        print(f"  Total de deputados únicos: {df_votos['deputado_id'].nunique()}")
+        print(f"  Total de partidos únicos: {df_votos['deputado_partido'].nunique()}")
+        
+        # Estatísticas de fidelidade partidária
+        fidelidade_stats = df_votos['fidelidade_partidaria'].value_counts(dropna=False)
+        print("\nFidelidade Partidária:")
+        print(f"  Seguiu orientação: {fidelidade_stats.get(True, 0):,}")
+        print(f"  Não seguiu orientação: {fidelidade_stats.get(False, 0):,}")
+        print(f"  Sem orientação/Liberada: {fidelidade_stats.get(None, 0):,}")
+        
+        # Taxa de fidelidade (apenas onde há orientação)
+        fidelidade_com_orientacao = df_votos[df_votos['fidelidade_partidaria'].notna()]
+        if len(fidelidade_com_orientacao) > 0:
+            taxa_fidelidade = (fidelidade_com_orientacao['fidelidade_partidaria'].sum() / len(fidelidade_com_orientacao)) * 100
+            print(f"  Taxa de fidelidade: {taxa_fidelidade:.2f}%")
+        
+        print("\nColunas no arquivo de votações:")
+        for i, col in enumerate(df_votacoes.columns, 1):
+            print(f"  {i:2d}. {col}")
+        
+        print("\nColunas no arquivo de votos individuais:")
+        for i, col in enumerate(df_votos.columns, 1):
             print(f"  {i:2d}. {col}")
             
     except Exception as e:

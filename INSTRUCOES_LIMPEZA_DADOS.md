@@ -64,7 +64,9 @@ dados_coletados/
    - Carregar todos os arquivos de dados por ano
    - Juntar as informações usando o ID de votação como chave
    - Filtrar votações sem orientações ou sem votos
-   - Gerar o arquivo `dados_limpos_powerbi.csv`
+   - Gerar dois arquivos CSV:
+     - `dados_limpos_powerbi.csv`: Tabela agregada de votações
+     - `votos_deputados_powerbi.csv`: Tabela detalhada de votos individuais dos deputados
 
 ## Critérios de Validação
 
@@ -76,9 +78,11 @@ Uma votação será incluída no arquivo final apenas se:
 
 Votações que não atendem a esses critérios são descartadas.
 
-## Estrutura do Arquivo de Saída
+## Estrutura dos Arquivos de Saída
 
-O arquivo `dados_limpos_powerbi.csv` contém as seguintes colunas:
+### Arquivo 1: `dados_limpos_powerbi.csv` (Votações Agregadas)
+
+Este arquivo contém uma linha por votação com informações agregadas:
 
 ### Informações Básicas da Votação
 - `id_votacao`: ID único da votação
@@ -122,18 +126,75 @@ O arquivo `dados_limpos_powerbi.csv` contém as seguintes colunas:
 - `orientacoes_liberada`: Quantidade de orientações "Liberada"
 - `orientacoes_outras`: Outras orientações
 
+### Arquivo 2: `votos_deputados_powerbi.csv` (Votos Individuais)
+
+Este arquivo contém uma linha para cada voto de cada deputado em cada votação. Permite análises detalhadas de fidelidade partidária.
+
+#### Informações da Votação (para fazer joins)
+- `id_votacao`: ID único da votação
+- `data`: Data da votação
+- `siglaOrgao`: Sigla do órgão
+- `descricao`: Descrição da votação
+- `aprovacao`: Se foi aprovada (1) ou não (0)
+- `temas`: Temas relacionados (separados por "; ")
+- `proposicao_afetada_id`: ID da proposição afetada
+- `proposicao_afetada_siglaTipo`: Tipo da proposição
+- `proposicao_afetada_numero`: Número da proposição
+- `proposicao_afetada_ano`: Ano da proposição
+
+#### Informações do Deputado
+- `deputado_id`: ID único do deputado
+- `deputado_nome`: Nome do deputado
+- `deputado_partido`: Sigla do partido
+- `deputado_uf`: Sigla do estado (UF)
+- `deputado_legislatura`: ID da legislatura
+- `deputado_email`: Email do deputado (se disponível)
+
+#### Informações do Voto
+- `voto`: Tipo de voto do deputado ("Sim", "Não", "Abstenção", "Obstrução", etc.)
+- `data_registro_voto`: Data e hora do registro do voto
+
+#### Informações de Fidelidade Partidária
+- `orientacao_partido`: Orientação de voto do partido do deputado ("Sim", "Não", "Abstenção", "Liberada", ou NULL)
+- `fidelidade_partidaria`: 
+  - `True`: Deputado seguiu a orientação do partido
+  - `False`: Deputado não seguiu a orientação do partido
+  - `NULL`: Não há orientação do partido ou orientação é "Liberada"
+
 ## Importação no Power BI
 
 1. Abra o Power BI Desktop
 2. Clique em "Obter Dados" > "Texto/CSV"
-3. Selecione o arquivo `dados_limpos_powerbi.csv`
+3. Importe ambos os arquivos:
+   - `dados_limpos_powerbi.csv` (tabela de votações)
+   - `votos_deputados_powerbi.csv` (tabela de votos individuais)
 4. Configure a codificação como UTF-8 se necessário
-5. Clique em "Carregar"
+5. Crie um relacionamento entre as tabelas usando `id_votacao` como chave
+6. Clique em "Carregar"
+
+### Relacionamento entre Tabelas
+
+No Power BI, crie um relacionamento:
+- **Tabela 1**: `dados_limpos_powerbi` (um para muitos)
+- **Tabela 2**: `votos_deputados_powerbi` (muitos)
+- **Chave**: `id_votacao`
+
+## Análises Possíveis
+
+Com os dados gerados, você pode realizar análises como:
+
+1. **Fidelidade Partidária por Deputado**: Calcular a porcentagem de vezes que cada deputado seguiu a orientação do partido
+2. **Fidelidade por Tema**: Verificar se a fidelidade varia conforme o tema da votação
+3. **Fidelidade ao Longo do Tempo**: Analisar se há mudanças na fidelidade conforme o período eleitoral se aproxima
+4. **Comportamento dos Partidos**: Comparar quantas orientações cada partido emite e como os deputados respondem
+5. **Análise por Região**: Verificar se há padrões regionais na fidelidade partidária
 
 ## Notas
 
-- O arquivo é salvo com codificação UTF-8-sig para compatibilidade com Excel/Power BI
+- Os arquivos são salvos com codificação UTF-8-sig para compatibilidade com Excel/Power BI
 - As datas são convertidas para formato datetime
-- O arquivo é ordenado por data (mais antigas primeiro)
+- Os arquivos são ordenados por data (mais antigas primeiro)
 - Votações sem temas ainda são incluídas (campo `temas` será NULL)
+- A fidelidade partidária só é calculada quando há uma orientação clara do partido (não "Liberada" ou NULL)
+- IDs de votação são normalizados para fazer match entre formatos com e sem sufixo (ex: "2152544-73" e "2152544")
 
